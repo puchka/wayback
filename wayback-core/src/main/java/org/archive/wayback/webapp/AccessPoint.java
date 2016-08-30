@@ -22,6 +22,7 @@ package org.archive.wayback.webapp;
 import java.io.File;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.net.SocketException;
 import java.net.URLEncoder;
 import java.util.HashSet;
 import java.util.List;
@@ -35,6 +36,7 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.archive.cdxserver.auth.AuthToken;
 import org.archive.format.gzip.zipnum.ZipNumBlockLoader;
 import org.archive.wayback.ExceptionRenderer;
 import org.archive.wayback.QueryRenderer;
@@ -46,6 +48,7 @@ import org.archive.wayback.RequestParser;
 import org.archive.wayback.ResourceStore;
 import org.archive.wayback.ResultURIConverter;
 import org.archive.wayback.UrlCanonicalizer;
+import org.archive.wayback.accesscontrol.AuthContextExclusionFilterFactory;
 import org.archive.wayback.accesscontrol.CollectionContext;
 import org.archive.wayback.accesscontrol.ContextExclusionFilterFactory;
 import org.archive.wayback.accesscontrol.ExclusionFilterFactory;
@@ -144,6 +147,7 @@ public class AccessPoint extends AbstractRequestHandler implements
 		Total,
 	}
 
+	@Deprecated
 	private String errorMsgHeader = RUNTIME_ERROR_HEADER;
 	private String perfStatsHeader = "X-Archive-Wayback-Perf";
 	private String warcFileHeader = "x-archive-src";
@@ -360,7 +364,14 @@ public class AccessPoint extends AbstractRequestHandler implements
 			handled = true;
 
 		} catch (Exception other) {
-			logError(httpResponse, errorMsgHeader, other, wbRequest);
+			if (other instanceof IOException && other.getCause() instanceof SocketException) {
+				// very likely be a client abort - don't dump stack trace.
+				// (cannot do instanceof ClientAbortException, as the exception
+				// is Tomcat specific. It is a subclass of IOException).
+				LOGGER.info(other.getMessage());
+			} else {
+				logError(httpResponse, errorMsgHeader, other, wbRequest);
+			}
 		} finally {
 			//Slightly hacky, but ensures that all block loaders are closed
 			ZipNumBlockLoader.closeAllReaders();
@@ -371,15 +382,19 @@ public class AccessPoint extends AbstractRequestHandler implements
 
 	/**
 	 * Return new instance of {@link ExclusionFilter} instance for this AccessPoint.
+	 * @param subject client information (may be {@code null})
 	 * @throws AccessControlException If it cannot instantiate ExclusionFilter when
 	 * it's supposed to (i.e. configured but failed to complete because of network
 	 * error etc.)
 	 */
-	public ExclusionFilter createExclusionFilter() throws AccessControlException {
+	public ExclusionFilter createExclusionFilter(AuthToken subject) throws AccessControlException {
 		ExclusionFilterFactory factory = getExclusionFactory();
 		if (factory != null) {
 			ExclusionFilter exclusionFilter = null;
-			if (factory instanceof ContextExclusionFilterFactory) {
+			if (factory instanceof AuthContextExclusionFilterFactory) {
+				// allows null return value
+				return ((AuthContextExclusionFilterFactory)factory).getExclusionFilter(this, subject);
+			} else if (factory instanceof ContextExclusionFilterFactory) {
 				exclusionFilter = ((ContextExclusionFilterFactory)factory).getExclusionFilter(this);
 			} else {
 				exclusionFilter = factory.get();
@@ -391,6 +406,10 @@ public class AccessPoint extends AbstractRequestHandler implements
 			return exclusionFilter;
 		}
 		return null;
+	}
+	
+	public ExclusionFilter createExclusionFilter() throws AccessControlException {
+		return createExclusionFilter(null);
 	}
 
 	public RewriteDirector getRewriteDirector() {
@@ -445,7 +464,9 @@ public class AccessPoint extends AbstractRequestHandler implements
 			}
 		}
 
-		if (!this.isEnableErrorMsgHeader()) {
+		// this functionality has been moved to BaseExceptionRenderer
+		// left here only for backward compatibility.
+		if (!this.isEnableErrorMsgHeader() || header == null) {
 			return;
 		}
 
@@ -842,7 +863,9 @@ public class AccessPoint extends AbstractRequestHandler implements
 
 						captureResults = searchCaptures(wbRequest);
 
+						captureSelector.setCaptures(captureResults);
 						closest = captureSelector.next();
+						counter = 0;
 						//originalClosest = closest;
 						//maxTimeouts *= 2;
 						//maxMissingRevisits *= 2;
@@ -998,6 +1021,7 @@ public class AccessPoint extends AbstractRequestHandler implements
 
 					captureSelector.setCaptures(captureResults);
 					closest = captureSelector.next();
+					counter = 0;
 
 					//originalClosest = closest;
 
@@ -1887,18 +1911,27 @@ public class AccessPoint extends AbstractRequestHandler implements
 		this.warcFileHeader = warcFileHeader;
 	}
 
+	@Deprecated
 	public String getErrorMsgHeader() {
 		return errorMsgHeader;
 	}
 
+	@Deprecated
 	public void setErrorMsgHeader(String errorMsgHeader) {
 		this.errorMsgHeader = errorMsgHeader;
 	}
 
+	@Deprecated
 	public boolean isEnableErrorMsgHeader() {
 		return enableErrorMsgHeader;
 	}
 
+	/**
+	 * Set {@code true} if you want Wayback to write out short
+	 * error description in the response header field.
+	 * @param enableErrorMsgHeader
+	 * @deprecated replaced by {@link BaseExceptionRenderer#setErrorHeader(String)}
+	 */
 	public void setEnableErrorMsgHeader(boolean enableErrorMsgHeader) {
 		this.enableErrorMsgHeader = enableErrorMsgHeader;
 	}
