@@ -43,7 +43,7 @@ public class RewritingStringTransformer implements StringTransformer {
 			return input;
 		}
 
-		if (!(rpContext.isInScriptText() || rpContext.isInJS() || input.startsWith("javascript:"))) {
+		if (!rpContext.isInScriptText() && !rpContext.isInJS()) {
 			return input;
 		}
 
