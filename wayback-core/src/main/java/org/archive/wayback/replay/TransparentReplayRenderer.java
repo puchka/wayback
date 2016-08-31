@@ -22,6 +22,7 @@ package org.archive.wayback.replay;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Map;
+import java.util.logging.Logger;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
@@ -34,6 +35,7 @@ import org.archive.wayback.core.CaptureSearchResults;
 import org.archive.wayback.core.Resource;
 import org.archive.wayback.core.WaybackRequest;
 import org.archive.wayback.exception.BadContentException;
+import org.archive.wayback.replay.html.ReplayParseContext;
 
 /**
  * ReplayRenderer implementation which returns the archive document as 
@@ -44,6 +46,9 @@ import org.archive.wayback.exception.BadContentException;
  * @version $Date$, $Revision$
  */
 public class TransparentReplayRenderer implements ReplayRenderer {
+	private static final Logger LOGGER = Logger
+		.getLogger(TransparentReplayRenderer.class.getName());
+
 	private HttpHeaderProcessor httpHeaderProcessor;
 	
 	// TODO: Figure out best way to generalize this, but probably good default
@@ -78,8 +83,10 @@ public class TransparentReplayRenderer implements ReplayRenderer {
 
 		HttpHeaderOperation.copyHTTPMessageHeader(httpHeadersResource, httpResponse);
 
+		ReplayParseContext context = ReplayParseContext.create(uriConverter, wbRequest, null, result, false);
+
 		Map<String,String> headers = HttpHeaderOperation.processHeaders(
-				httpHeadersResource, result, uriConverter, httpHeaderProcessor);
+				httpHeadersResource, context, httpHeaderProcessor);
 
 		// HACKHACK: getContentLength() may not find the original content length
 		// if a HttpHeaderProcessor has mangled it too badly. Should this
@@ -108,9 +115,14 @@ public class TransparentReplayRenderer implements ReplayRenderer {
 		OutputStream os = httpResponse.getOutputStream();
 		byte[] buffer = new byte[BUFFER_SIZE];
 		long total = 0;
-		for (int r = -1; (r = payloadResource.read(buffer, 0, BUFFER_SIZE)) != -1;) {
-			os.write(buffer, 0, r);
-			total += r;
+		try {
+			for (int r = -1; (r = payloadResource.read(buffer, 0, BUFFER_SIZE)) != -1;) {
+				os.write(buffer, 0, r);
+				total += r;
+			}
+		} catch (IOException ex) {
+			// probably client has closed connection
+			LOGGER.info("error writing response: " + ex);
 		}
 		if(total == 0) {
 			if(headers.size() == 0) {

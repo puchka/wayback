@@ -34,40 +34,75 @@ public class LiveDocumentNotAvailableException extends WaybackException {
 
 	private static final long serialVersionUID = 1L;
 	protected static final String ID = "liveDocumentNotAvailable";
-	protected static final String defaultMessage = "Live document unavailable";
+	protected static final String DEFAULT_MESSAGE = "live document unavailable";
 
-	private int statuscode = 0;
+	private String url;
+	private int statuscode = -1;
 
 	/**
-	 * Constructor
-	 * @param url
-	 * @param code
+	 * Construct exception with URL, details message and cause.
+	 * @param url URL of target live resource
+	 * @param message details of error causing this error
+	 * @param cause an exception causing this error (can be {@code null} if not applicable)
+	 */
+	public LiveDocumentNotAvailableException(String url, String message, Throwable cause) {
+		super(message);
+		this.id = ID;
+		if (cause != null)
+			initCause(cause);
+		this.url = url;
+	}
+
+	public LiveDocumentNotAvailableException(String url, Throwable cause) {
+		this(url, DEFAULT_MESSAGE, cause);
+	}
+	
+	/**
+	 * Construct exception with URL and HTTP status code
+	 * @param url URL of target live resource
+	 * @param code HTTP status code returned by target server
+	 */
+	public LiveDocumentNotAvailableException(String url, int code) {
+		this(url, DEFAULT_MESSAGE, null);
+		this.statuscode = code;
+	}
+
+	/**
+	 * Construct exception with URL and HTTP status code
+	 * @param url URL of target live resource
+	 * @param code HTTP status code returned by target server
 	 */
 	public LiveDocumentNotAvailableException(URL url, int code) {
-		super("The URL " + url.toString() + " is not available(HTTP " + code +
-				" returned)", defaultMessage);
-		id = ID;
-		this.statuscode = code;
+		this(url.toString(), code);
 	}
 
 	/**
-	 * Constructor with message and details
-	 * @param url
-	 * @param code
-	 * @param details
+	 * Construct exception with URL and details message.
+	 * @param url URL of target live resource
+	 * @param message details of an error causing this exception
 	 */
-	public LiveDocumentNotAvailableException(URL url, int code, String details) {
-		super("The URL " + url.toString() + " is not available(HTTP " + code +
-				" returned)", defaultMessage, details);
-		id = ID;
-		this.statuscode = code;
+	public LiveDocumentNotAvailableException(URL url, String message) {
+		this(url.toString(), message, null);
 	}
 
 	/**
-	 * @param url
+	 * Construct exception with URL and cause.
+	 * @param url URL of target live resource 
+	 * @param cause an exception causing this error.
+	 */
+	public LiveDocumentNotAvailableException(URL url, Throwable cause) {
+		this(url.toString(), cause);
+	}
+	
+	/**
+	 * Constructor with URL only.
+	 * Avoid using this constructor because details of the cause is
+	 * unavailable.
+	 * @param url URL of target live document
+	 * @deprecated 2016-06-09 use constructor with {@code cause} or {@code message}
 	 */
 	public LiveDocumentNotAvailableException(String url) {
-		super("The URL " + url + " is not available", defaultMessage);
+		super("The URL " + url + " is not available", DEFAULT_MESSAGE);
 		id = ID;
 	}
 
@@ -80,10 +115,34 @@ public class LiveDocumentNotAvailableException extends WaybackException {
 
 	/**
 	 * Return the original HTTP status code that resulted in this
-	 * exception.
-	 * @return HTTP status code, or 0 if not applicable.
+	 * exception. Note that this returns -1 if this exception is
+	 * initialized through constructor without code argument. Use
+	 * <code>cause</code> for failure details.
+	 * Value zero is reserved for compatibility with old LiveWebCache
+	 * implementations. Don't use it in the new code.
+	 * @return HTTP status code, or -1 if not applicable.
 	 */
 	public int getOriginalStatuscode() {
 		return statuscode;
+	}
+
+	/**
+	 * return details message - includes.
+	 * @return details message
+	 */
+	public String getMessage() {
+		StringBuilder sb = new StringBuilder();
+		sb.append(url != null ? url : "<unspecified url>");
+		String msg = super.getMessage();
+		if (msg != null) {
+			sb.append(": ").append(msg);
+		}
+		Throwable cause = getCause();
+		if (cause != null) {
+			sb.append(": ").append(cause.toString());
+		} else if (statuscode != -1) {
+			sb.append(": Status ").append(Integer.toString(statuscode));
+		}
+		return sb.toString();
 	}
 }
